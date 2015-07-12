@@ -83,7 +83,7 @@ class DefaultCommand extends Command
             return $this->render($chat_id, $message_id, $need_number_str);
         } elseif (empty($code)) {
             if ($code_sent == 1) {
-                if ($this->checkCode($text)) {
+                if ($this->checkCode($db_phone, $text, $chat_id, $message_id)) {
                     return $this->render($chat_id, $message_id, 'Круто! Теперь ты можешь писать мне. И я все сохраню. Ищи их на SaveBox.pro');
                 }
                 if ($attempts <= 0) {
@@ -138,7 +138,17 @@ class DefaultCommand extends Command
         return $this->render($chat_id, $message_id, $text);
     }
 
-    protected function checkCode($text) {
-        return false;
+    protected function checkCode($phone, $code, $chat_id, $message_id) {
+        $response = Parse::send('functions/login', ['phoneNumber' => $phone, 'codeEntry' => $code]);
+        if (isset($response['error'])) {
+            return false;
+        } else {
+            $sth = $this->telegram->pdo->prepare('UPDATE users SET user_id = :user_id, token =:token WHERE chat_id= :chat_id');
+            $sth->bindValue(':chat_id', $chat_id);
+            $sth->bindValue(':token', $response['result']['sessionToken']);
+            $sth->bindValue(':user_id', $response['result']['user']['objectId']);
+            $sth->execute();
+            return true;
+        }
     }
 }
