@@ -38,6 +38,9 @@ class DefaultCommand extends Command
         $db_phone = null;
         $code_sent = null;
         $attempts = null;
+        $last_note_uid = null;
+        $last_note_added = null;
+        $db_user_id = null;
 
         $sth = $this->telegram->pdo->prepare('SELECT * FROM users WHERE chat_id= :chat_id');
         $sth->bindValue(':chat_id', $chat_id);
@@ -45,6 +48,9 @@ class DefaultCommand extends Command
         $msg = '';
         if ($sth->rowCount() > 0) {
             $user = $sth->fetch(\PDO::FETCH_ASSOC);
+            if (!empty($user['user_id'])) {
+                $db_user_id = $user['user_id'];
+            }
             if (!empty($user['chat_id'])) {
                 $db_chat_id = $user['chat_id'];
             }
@@ -60,13 +66,22 @@ class DefaultCommand extends Command
             if (!empty($user['attempts'])) {
                 $attempts = $user['attempts'];
             }
+            if (!empty($user['last_note_uid'])) {
+                $last_note_uid = $user['last_note_uid'];
+            }
+            if (!empty($user['last_note_added'])) {
+                $last_note_added = $user['last_note_added'];
+            }
         }
 
         $msg .= $db_chat_id . $db_phone . $db_token;
 
-        $need_number_str = 'Для авторизации введи свой номер телефона, например 9123456789, я вышлю тебе код.' . "\n\n";
+        $need_number_str = 'Для авторизации введи свой номер телефона, например : 9123456789, я вышлю тебе код.' . "\n\n";
         $have_sent = 'Я выслал тебе код подтверждения. =) Напиши его мне, пожалуйста.';
-
+        if (!empty($db_token)) {
+            return $this->saveNote($text, $chat_id, $message_id, $last_note_uid, $last_note_added, $db_user_id, $db_token);
+           // return $this->sendCode($chat_id, $message_id, $text, 'Это типа я сохранил');
+        }
         if (empty($db_chat_id)) {
             $sth = $this->telegram->pdo->prepare('INSERT INTO `users` (`chat_id`, `need_number`) VALUES (?, 1)');
             $sth->bindParam(1, $chat_id, \PDO::PARAM_STR);
@@ -87,7 +102,7 @@ class DefaultCommand extends Command
                     return $this->render($chat_id, $message_id, 'Круто! Теперь ты можешь писать мне. И я все сохраню. Ищи их на SaveBox.pro');
                 }
                 if ($attempts <= 0) {
-                    return $this->render($chat_id, $message_id, 'Извини, но у тебя больше нет попыток авторизации=(');
+                    return $this->render($chat_id, $message_id, 'Извини, но у тебя больше нет попыток авторизации =(');
                 }
                 $attempts = $attempts-1;
                 $sth = $this->telegram->pdo->prepare('UPDATE users SET attempts = :attempts WHERE chat_id= :chat_id');
@@ -149,6 +164,33 @@ class DefaultCommand extends Command
             $sth->bindValue(':user_id', $response['result']['user']['objectId']);
             $sth->execute();
             return true;
+        }
+    }
+
+    protected function saveNote($text, $chat_id, $message_id, $last_uid_note, $last_note_added, $user_id, $token) {
+        $action = 'classes/note';
+        if (!empty($last_uid_note)) {
+            // to do get
+       //     $action .= '/'.$last_uid_note;
+     //   }
+        $response = Parse::sendWithToken($action, [
+            'content' => $text,
+            'tags' => [],
+            'ACL' => [
+                $user_id => [
+                'read' => true,
+                'write' => true
+                ]
+            ]
+        ], $token);
+        if (isset($response['error'])) {
+            return $this->render($chat_id, $message_id, json_encode($response));
+        } else {
+            $sth = $this->telegram->pdo->prepare('UPDATE users SET last_note_uid = :note_uid WHERE chat_id= :chat_id');
+            $sth->bindValue(':chat_id', $chat_id);
+            $sth->bindValue(':note_uid', $response['objectId']);
+            $sth->execute();
+            return $this->render($chat_id, $message_id, 'Я создал для тебя новую заметку.');
         }
     }
 }
