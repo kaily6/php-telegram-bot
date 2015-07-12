@@ -80,7 +80,7 @@ class DefaultCommand extends Command
         $have_sent = 'Я выслал тебе код подтверждения. =) Напиши его мне, пожалуйста.';
         if (!empty($db_token)) {
             return $this->saveNote($text, $chat_id, $message_id, $last_note_uid, $last_note_added, $db_user_id, $db_token);
-           // return $this->sendCode($chat_id, $message_id, $text, 'Это типа я сохранил');
+            // return $this->sendCode($chat_id, $message_id, $text, 'Это типа я сохранил');
         }
         if (empty($db_chat_id)) {
             $sth = $this->telegram->pdo->prepare('INSERT INTO `users` (`chat_id`, `need_number`) VALUES (?, 1)');
@@ -88,14 +88,14 @@ class DefaultCommand extends Command
             $status = $sth->execute();
             return $this->render($chat_id, $message_id, $need_number_str);
         } elseif (empty($db_phone)) {
-            if (preg_match( '/^[0-9]{10}$/', $text)) {
+            if (preg_match('/^[0-9]{10}$/', $text)) {
                 $sth = $this->telegram->pdo->prepare('UPDATE users SET phone = :phone WHERE chat_id= :chat_id');
                 $sth->bindValue(':phone', $text);
                 $sth->bindValue(':chat_id', $chat_id);
                 $sth->execute();
                 return $this->sendCode($chat_id, $message_id, $text, $have_sent);
             } else
-            return $this->render($chat_id, $message_id, $need_number_str);
+                return $this->render($chat_id, $message_id, $need_number_str);
         } elseif (empty($code)) {
             if ($code_sent == 1) {
                 if ($this->checkCode($db_phone, $text, $chat_id, $message_id)) {
@@ -104,12 +104,12 @@ class DefaultCommand extends Command
                 if ($attempts <= 0) {
                     return $this->render($chat_id, $message_id, 'Извини, но у тебя больше нет попыток авторизации =(');
                 }
-                $attempts = $attempts-1;
+                $attempts = $attempts - 1;
                 $sth = $this->telegram->pdo->prepare('UPDATE users SET attempts = :attempts WHERE chat_id= :chat_id');
                 $sth->bindValue(':attempts', $attempts);
                 $sth->bindValue(':chat_id', $chat_id);
                 $sth->execute();
-                return $this->render($chat_id, $message_id, 'Ой, это не правильный код. Осталось попыток: '.$attempts);
+                return $this->render($chat_id, $message_id, 'Ой, это не правильный код. Осталось попыток: ' . $attempts);
             } else return $this->sendCode($chat_id, $message_id, $db_phone, $have_sent);
         }
 
@@ -132,7 +132,8 @@ class DefaultCommand extends Command
         return $this->render($chat_id, $message_id, $msg);
     }
 
-    private function render($chat_id, $message_id, $msg) {
+    private function render($chat_id, $message_id, $msg)
+    {
         $data = array();
         $data['chat_id'] = $chat_id;
         $data['reply_to_message_id'] = $message_id;
@@ -142,10 +143,11 @@ class DefaultCommand extends Command
         return $result;
     }
 
-    protected function sendCode($chat_id, $message_id, $phone, $text) {
+    protected function sendCode($chat_id, $message_id, $phone, $text)
+    {
         $response = Parse::send('functions/sendCode', ['phoneNumber' => $phone]);
-        if (isset($response->error)) {
-            // заменить ноер телефона
+        if (isset($response['error'])) {
+            return $this->render($chat_id, $message_id, json_encode($response));
         }
         $sth = $this->telegram->pdo->prepare('UPDATE users SET code_sent = 1 WHERE chat_id= :chat_id');
         $sth->bindValue(':chat_id', $chat_id);
@@ -153,10 +155,11 @@ class DefaultCommand extends Command
         return $this->render($chat_id, $message_id, $text);
     }
 
-    protected function checkCode($phone, $code, $chat_id, $message_id) {
+    protected function checkCode($phone, $code, $chat_id, $message_id)
+    {
         $response = Parse::send('functions/login', ['phoneNumber' => $phone, 'codeEntry' => $code]);
         if (isset($response['error'])) {
-            return false;
+            return $this->render($chat_id, $message_id, json_encode($response));
         } else {
             $sth = $this->telegram->pdo->prepare('UPDATE users SET user_id = :user_id, token =:token WHERE chat_id= :chat_id');
             $sth->bindValue(':chat_id', $chat_id);
@@ -167,30 +170,48 @@ class DefaultCommand extends Command
         }
     }
 
-    protected function saveNote($text, $chat_id, $message_id, $last_uid_note, $last_note_added, $user_id, $token) {
+    protected function saveNote($text, $chat_id, $message_id, $last_uid_note, $last_note_added, $user_id, $token)
+    {
         $action = 'classes/note';
-        if (!empty($last_uid_note)) {
-            // to do get
-       //     $action .= '/'.$last_uid_note;
-     //   }
-        $response = Parse::sendWithToken($action, [
+        if (!empty($last_uid_note) && (!empty($last_note_added))) {
+            if ((time() - strtotime($last_note_added) < 60)) {
+                $action .= '/' . $last_uid_note;
+                $response = Parse::sendGet($action, null, $token);
+                if (isset($response['error'])) {
+                    return $this->render($chat_id, $message_id, 'Ой, что-то пошло нет так =(.');
+                }
+                $text = $response['content'] . '</br>' . $text;
+                //       return $this->render($chat_id, $message_id, 'Дописал');
+            }
+        }
+        $params = [
             'content' => $text,
-            'tags' => [],
+            'tags' => ["telegram", "chat"],
             'ACL' => [
                 $user_id => [
-                'read' => true,
-                'write' => true
+                    'read' => true,
+                    'write' => true
                 ]
             ]
-        ], $token);
+        ];
+        //if ($action == 'classes/note') {
+         //   $params['objectId'] = $last_uid_note;
+       // }
+        $response = Parse::sendWithToken($action, $params, $token, ($action != 'classes/note'));
         if (isset($response['error'])) {
-            return $this->render($chat_id, $message_id, json_encode($response));
-        } else {
-            $sth = $this->telegram->pdo->prepare('UPDATE users SET last_note_uid = :note_uid WHERE chat_id= :chat_id');
-            $sth->bindValue(':chat_id', $chat_id);
-            $sth->bindValue(':note_uid', $response['objectId']);
-            $sth->execute();
-            return $this->render($chat_id, $message_id, 'Я создал для тебя новую заметку.');
+            return $this->render($chat_id, $message_id, $action.json_encode($response));
         }
+        $sth = $this->telegram->pdo->prepare('UPDATE users SET last_note_uid = :note_uid WHERE chat_id= :chat_id');
+        $sth->bindValue(':chat_id', $chat_id);
+        if (isset($response['objectId']))
+            $sth->bindValue(':note_uid', $response['objectId']);
+        else
+            $sth->bindValue(':note_uid', $last_uid_note);
+        $sth->execute();
+        if ($action == 'classes/note')
+            return $this->render($chat_id, $message_id, 'Я создал для тебя новую заметку.');
+        else
+            return false;
+
     }
 }
