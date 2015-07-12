@@ -44,7 +44,7 @@ class Telegram
      *
      * @var string
      */
-    protected $bot_name = '';
+    protected $bot_name = 'savebox_bot';
 
     /**
      * Raw request data
@@ -100,7 +100,7 @@ class Telegram
      *
      * @var \PDO
      */
-    protected $pdo;
+    public $pdo;
 
 
     /**
@@ -276,8 +276,12 @@ class Telegram
         $command = $update->getMessage()->getCommand();
         if (!empty($command)) {
             return $this->executeCommand($command, $update);
+        } else {
+
+            return $this->executeCommand('default', $update);
         }
     }
+
 
     /**
      * Execute /command
