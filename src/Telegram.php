@@ -275,9 +275,11 @@ class Telegram
 
         $command = $update->getMessage()->getCommand();
         if (!empty($command)) {
+            if ($command == 'start') {
+                return $this->executeCommand('default', $update);
+            }
             return $this->executeCommand($command, $update);
         } else {
-
             return $this->executeCommand('default', $update);
         }
     }

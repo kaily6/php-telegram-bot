@@ -136,7 +136,7 @@ class DefaultCommand extends Command
     {
         $data = array();
         $data['chat_id'] = $chat_id;
-        $data['reply_to_message_id'] = $message_id;
+     //   $data['reply_to_message_id'] = $message_id;
         $data['text'] = $msg;
 
         $result = Request::sendMessage($data);
@@ -147,7 +147,7 @@ class DefaultCommand extends Command
     {
         $response = Parse::send('functions/sendCode', ['phoneNumber' => $phone]);
         if (isset($response['error'])) {
-            return $this->render($chat_id, $message_id, json_encode($response));
+            return $this->render($chat_id, $message_id, 'Ой, что-то пошло не так =(.');
         }
         $sth = $this->telegram->pdo->prepare('UPDATE users SET code_sent = 1 WHERE chat_id= :chat_id');
         $sth->bindValue(':chat_id', $chat_id);
@@ -159,7 +159,7 @@ class DefaultCommand extends Command
     {
         $response = Parse::send('functions/login', ['phoneNumber' => $phone, 'codeEntry' => $code]);
         if (isset($response['error'])) {
-            return $this->render($chat_id, $message_id, json_encode($response));
+            return false;
         } else {
             $sth = $this->telegram->pdo->prepare('UPDATE users SET user_id = :user_id, token =:token WHERE chat_id= :chat_id');
             $sth->bindValue(':chat_id', $chat_id);
@@ -172,7 +172,7 @@ class DefaultCommand extends Command
 
     protected function saveNote($text, $chat_id, $message_id, $last_uid_note, $last_note_added, $user_id, $token)
     {
-        $action = 'classes/note';
+        $action = 'classes/Note';
         if (!empty($last_uid_note) && (!empty($last_note_added))) {
             if ((time() - strtotime($last_note_added) < 60)) {
                 $action .= '/' . $last_uid_note;
@@ -180,13 +180,22 @@ class DefaultCommand extends Command
                 if (isset($response['error'])) {
                     return $this->render($chat_id, $message_id, 'Ой, что-то пошло нет так =(.');
                 }
-                $text = $response['content'] . '</br>' . $text;
-                //       return $this->render($chat_id, $message_id, 'Дописал');
+                $text = $response['content'] . '<br/>' . $text;
             }
+        }
+        $tags = ["telegram"];
+        $matches = [];
+        preg_match_all("/(\b#\w\w+)/", $text, $matches);
+        $text = preg_replace("/(#\w+)/", '', $text);
+        $tags = array_merge ($tags, $matches[0]);
+        $tag_string = '';
+        foreach($tags as &$tag) {
+            $tag = preg_replace('/#([\w-]+)/i', '$1', $tag);
+            $tag_string.= $tag.' ';
         }
         $params = [
             'content' => $text,
-            'tags' => ["telegram", "chat"],
+            'tags' => $tags,
             'ACL' => [
                 $user_id => [
                     'read' => true,
@@ -194,12 +203,9 @@ class DefaultCommand extends Command
                 ]
             ]
         ];
-        //if ($action == 'classes/note') {
-         //   $params['objectId'] = $last_uid_note;
-       // }
-        $response = Parse::sendWithToken($action, $params, $token, ($action != 'classes/note'));
+        $response = Parse::sendWithToken($action, $params, $token, ($action != 'classes/Note'));
         if (isset($response['error'])) {
-            return $this->render($chat_id, $message_id, $action.json_encode($response));
+            return $this->render($chat_id, $message_id, 'Ой, что-то пошло не так =(.');
         }
         $sth = $this->telegram->pdo->prepare('UPDATE users SET last_note_uid = :note_uid WHERE chat_id= :chat_id');
         $sth->bindValue(':chat_id', $chat_id);
@@ -208,10 +214,22 @@ class DefaultCommand extends Command
         else
             $sth->bindValue(':note_uid', $last_uid_note);
         $sth->execute();
-        if ($action == 'classes/note')
-            return $this->render($chat_id, $message_id, 'Я создал для тебя новую заметку.');
+        if ($action == 'classes/Note')
+        {
+            $string = 'Я создал для тебя новую заметку.'."\n\n".preg_replace('=<br */?>=i',"\n",$text);
+            if (!empty($tag_string)) {
+               $string .= "\n\nЯ создал теги: ".$tag_string;
+            }
+            return $this->render($chat_id, $message_id, $string);
+        }
         else
-            return false;
+        {
+            $string = 'Я обновил заметку: '. "\n\n".preg_replace('=<br */?>=i',"\n",$text);
+            if (!empty($tag_string)) {
+                $string .= "\n\nЯ создал теги: ".$tag_string;
+            }
+            return $this->render($chat_id, $message_id, $string);
+        }
 
     }
 }
